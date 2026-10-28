@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { NumberInput, Slider, Text, TextInput } from '@mantine/core';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Badge, Button, Code, CopyButton, FileButton, Group, Modal, NumberInput, Paper, ScrollArea, SegmentedControl,
-  Slider, Stack, Switch, Table, Tabs, TagsInput, Text, TextInput, Title,
-} from '@mantine/core';
+  faCheck, faCode, faDownload, faEarthEurope, faFilter, faFire, faGauge, faInfinity, faKeyboard, faLanguage,
+  faListOl, faPlay, faRepeat, faSliders, faStopwatch, faTrash, faTrophy, faUpload,
+} from '@fortawesome/free-solid-svg-icons';
 import SkillCheck from './SkillCheck';
+import { Dialog, Menu, Option, TextUI } from './ox';
 import { dicts, type Dict, type Lang } from './i18n';
 import {
   configKey, DEFAULT_SETTINGS, KEY_RE, mergeEntries, parseEntries, presetOf, PRESETS, sortEntries,
-  type Entry, type Preset, type Settings,
+  type Entry, type Settings,
 } from './scores';
 
 function load<T>(key: string, fallback: T): T {
@@ -28,14 +31,20 @@ function store(key: string, value: unknown) {
 
 interface Run { round: number; successes: number; times: number[] }
 type Result = Omit<Entry, 'name' | 'date'>;
+type DialogKind = 'custom' | 'keys' | 'count' | 'clear' | null;
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const fmtMs = (ms: number) => (ms ? `${Math.round(ms)} ms` : '—');
+const keysLabel = (keys: string[]) => (keys.join(' ') || 'e').toUpperCase();
+const RANK_COLORS = ['#fcc419', '#ced4da', '#e8590c'];
+
+function difficultyLabel(areaSize: number, speedMultiplier: number, t: Dict) {
+  const p = presetOf(areaSize, speedMultiplier);
+  return p === 'custom' ? `${areaSize}° · ×${speedMultiplier}` : t[p];
+}
 
 function setupLabel(e: Pick<Entry, 'areaSize' | 'speedMultiplier' | 'keys' | 'mode' | 'count'>, t: Dict) {
-  const p = presetOf(e.areaSize, e.speedMultiplier);
-  const diff = p === 'custom' ? `${e.areaSize}° ×${e.speedMultiplier}` : t[p];
-  return `${diff} · ${(e.keys.join('') || 'e').toUpperCase()} · ${e.mode === 'fixed' ? e.count : '∞'}`;
+  return `${difficultyLabel(e.areaSize, e.speedMultiplier, t)} · ${keysLabel(e.keys)} · ${e.mode === 'fixed' ? e.count : '∞'}`;
 }
 
 function luaSnippet(s: Settings) {
@@ -52,7 +61,10 @@ export default function App() {
   const [name, setName] = useState<string>(() => load('oxsc.name', ''));
   const [run, setRun] = useState<Run | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const [flash, setFlash] = useState<{ ok: boolean; id: number } | null>(null);
+  const [view, setView] = useState<'main' | 'difficulty' | 'mode'>('main');
+  const [dialog, setDialog] = useState<DialogKind>(null);
+  const [draft, setDraft] = useState({ areaSize: 0, speedMultiplier: 0, keys: '', count: 0 });
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => store('oxsc.lang', lang), [lang]);
   useEffect(() => store('oxsc.settings', s), [s]);
@@ -65,20 +77,30 @@ export default function App() {
       return { ...next, preset: presetOf(next.areaSize, next.speedMultiplier) };
     });
 
+  const openDialog = (kind: DialogKind) => {
+    setDraft({ areaSize: s.areaSize, speedMultiplier: s.speedMultiplier, keys: s.keys.join(', '), count: s.count });
+    setDialog(kind);
+  };
+
+  const confirmDialog = () => {
+    if (dialog === 'custom') update({ areaSize: draft.areaSize, speedMultiplier: draft.speedMultiplier });
+    if (dialog === 'keys')
+      update({ keys: [...new Set(draft.keys.toLowerCase().split(/[\s,]+/).filter((k) => KEY_RE.test(k)))] });
+    if (dialog === 'count') update({ mode: 'fixed', count: Math.min(100, Math.max(1, Math.round(draft.count) || 1)) });
+    if (dialog === 'clear') setScores(() => []);
+    setDialog(null);
+  };
+
   const start = () => {
-    (document.activeElement as HTMLElement | null)?.blur(); // so a focused button/slider doesn't eat keys
+    (document.activeElement as HTMLElement | null)?.blur(); // so a focused button doesn't eat keys
     setResult(null);
-    setFlash(null);
     setRun({ round: 0, successes: 0, times: [] });
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      const typing = (el instanceof HTMLInputElement && !['radio', 'checkbox'].includes(el.type))
-        || el instanceof HTMLTextAreaElement || el.closest?.('[role="dialog"]');
-      if (typing) return;
-      if (e.key === ' ' && !run && !result) {
+      if (dialog || result) return;
+      if (e.key === ' ' && !run) {
         e.preventDefault();
         start();
       }
@@ -95,7 +117,6 @@ export default function App() {
       successes: run.successes + (ok ? 1 : 0),
       times: ok ? [...run.times, ms] : run.times,
     };
-    setFlash({ ok, id: next.round });
     const over = s.mode === 'endless' ? !ok : next.round >= s.count;
     if (!over) return setRun(next);
     setRun(null);
@@ -117,167 +138,142 @@ export default function App() {
     setResult(null);
   };
 
-  return (
-    <div className="app">
-      <header className="header">
-        <div>
-          <Title order={2} className="brand">
-            <span className="brand-ox">ox</span> {t.title}
-          </Title>
-          <Text c="dimmed" size="sm">{t.subtitle}</Text>
-        </div>
-        <SegmentedControl
-          value={lang}
-          onChange={(v) => setLang(v as Lang)}
-          data={[{ value: 'da', label: 'DA' }, { value: 'en', label: 'EN' }]}
-        />
-      </header>
+  const copyLua = () => {
+    navigator.clipboard?.writeText(luaSnippet(s)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
-      <main className="grid">
-        <Paper className="card" p="md" radius="sm" shadow="sm">
-          <fieldset disabled={!!run} className="plain">
-            <Stack gap="md">
-              <Title order={4}>{t.settings}</Title>
-              <div>
-                <Text size="sm" fw={500} mb={6}>{t.difficulty}</Text>
-                <SegmentedControl
-                  fullWidth
-                  value={s.preset}
-                  onChange={(v) => v !== 'custom' && update(PRESETS[v as Exclude<Preset, 'custom'>])}
-                  data={(['easy', 'medium', 'hard', 'custom'] as const).map((p) => ({
-                    value: p, label: t[p], disabled: p === 'custom',
-                  }))}
-                />
-              </div>
-              <div>
-                <Group justify="space-between" mb={6}>
-                  <Text size="sm" fw={500}>{t.areaSize}</Text>
-                  <Badge variant="light">{s.areaSize}°</Badge>
-                </Group>
-                <Slider min={5} max={180} value={s.areaSize} onChange={(v) => update({ areaSize: v })} label={null} />
-              </div>
-              <div>
-                <Group justify="space-between" mb={6}>
-                  <Text size="sm" fw={500}>{t.speed}</Text>
-                  <Badge variant="light">×{s.speedMultiplier}</Badge>
-                </Group>
-                <Slider
-                  min={0.25} max={5} step={0.05} value={s.speedMultiplier} label={null}
-                  onChange={(v) => update({ speedMultiplier: Math.round(v * 100) / 100 })}
-                />
-              </div>
-              <TagsInput
-                label={t.keys}
-                description={t.keysHint}
-                value={s.keys}
-                onChange={(v) => update({ keys: [...new Set(v.map((k) => k.trim().toLowerCase()).filter((k) => KEY_RE.test(k)))] })}
-                splitChars={[',', ' ']}
-                clearable
-              />
-              <div>
-                <Text size="sm" fw={500} mb={6}>{t.mode}</Text>
-                <SegmentedControl
-                  fullWidth
-                  value={s.mode}
-                  onChange={(v) => update({ mode: v as Settings['mode'] })}
-                  data={[{ value: 'endless', label: t.endless }, { value: 'fixed', label: t.fixed }]}
-                />
-              </div>
-              {s.mode === 'fixed' && (
-                <NumberInput
-                  label={t.count} min={1} max={100} value={s.count}
-                  onChange={(v) => typeof v === 'number' && update({ count: Math.min(100, Math.max(1, Math.round(v))) })}
-                />
+  const busy = !!run;
+
+  return (
+    <div className="layout">
+      {view === 'main' && (
+        <Menu title="Skillcheck">
+          <Option icon={faPlay} title={t.start} description="SPACE" onClick={start} disabled={busy} />
+          <Option icon={faGauge} title={t.difficulty} description={difficultyLabel(s.areaSize, s.speedMultiplier, t)}
+            arrow onClick={() => setView('difficulty')} disabled={busy} />
+          <Option icon={faKeyboard} title={t.keys} description={keysLabel(s.keys)} onClick={() => openDialog('keys')} disabled={busy} />
+          <Option icon={faRepeat} title={t.mode} description={s.mode === 'endless' ? t.endless : `${t.fixed} · ${s.count}`}
+            arrow onClick={() => setView('mode')} disabled={busy} />
+          <Option icon={copied ? faCheck : faCode} title={copied ? t.copied : t.copyLua}
+            description={<code className="lua">{luaSnippet(s)}</code>} onClick={copyLua} />
+          <Option icon={faLanguage} title={t.language} description={t.langName} onClick={() => setLang(lang === 'da' ? 'en' : 'da')} />
+        </Menu>
+      )}
+      {view === 'difficulty' && (
+        <Menu title={t.difficulty} onBack={() => setView('main')}>
+          {(['easy', 'medium', 'hard'] as const).map((p) => (
+            <Option key={p} title={t[p]} description={`${PRESETS[p].areaSize}° · ×${PRESETS[p].speedMultiplier}`}
+              checked={s.preset === p} onClick={() => update(PRESETS[p])} disabled={busy} />
+          ))}
+          <Option icon={faSliders} title={t.custom}
+            description={s.preset === 'custom' ? `${s.areaSize}° · ×${s.speedMultiplier}` : undefined}
+            checked={s.preset === 'custom'} onClick={() => openDialog('custom')} disabled={busy} />
+        </Menu>
+      )}
+      {view === 'mode' && (
+        <Menu title={t.mode} onBack={() => setView('main')}>
+          <Option icon={faInfinity} title={t.endless} checked={s.mode === 'endless'} onClick={() => update({ mode: 'endless' })} disabled={busy} />
+          <Option icon={faListOl} title={t.fixed} description={String(s.count)} checked={s.mode === 'fixed'}
+            onClick={() => openDialog('count')} disabled={busy} />
+        </Menu>
+      )}
+
+      <section className="stage">
+        {run ? (
+          <>
+            <TextUI>
+              {s.mode === 'endless' ? (
+                <span><FontAwesomeIcon icon={faFire} fixedWidth /> {run.successes}</span>
+              ) : (
+                <>
+                  <span><FontAwesomeIcon icon={faListOl} fixedWidth /> {run.round}/{s.count}</span>
+                  <span><FontAwesomeIcon icon={faCheck} fixedWidth /> {run.successes}</span>
+                </>
               )}
-              <div>
-                <Group justify="space-between" mb={6}>
-                  <Text size="sm" fw={500}>{t.luaSnippet}</Text>
-                  <CopyButton value={luaSnippet(s)}>
-                    {({ copied, copy }) => (
-                      <Button size="compact-xs" variant="light" onClick={copy}>{copied ? t.copied : t.copy}</Button>
-                    )}
-                  </CopyButton>
-                </Group>
-                <Code block className="lua">{luaSnippet(s)}</Code>
-              </div>
-            </Stack>
-          </fieldset>
-        </Paper>
-
-        <section className="stage" onClick={() => !run && !result && start()}>
-          <div className="stage-hud">
-            <Stat label={s.mode === 'endless' ? t.streak : t.progress}
-              value={s.mode === 'endless' ? String(run?.successes ?? 0) : `${run?.round ?? 0}/${s.count}`} />
-            {s.mode === 'fixed' && <Stat label={t.hits} value={String(run?.successes ?? 0)} />}
-            <Stat label={t.avg} value={fmtMs(avg(run?.times ?? []))} />
-          </div>
-          <div className="stage-center">
-            {flash && <div key={flash.id} className={`flash ${flash.ok ? 'ok' : 'bad'}`} />}
-            {run ? (
-              <div className="sc-scale">
-                <SkillCheck key={run.round} areaSize={s.areaSize} speedMultiplier={s.speedMultiplier} keys={s.keys} onComplete={onComplete} />
-              </div>
-            ) : (
-              <div className="prompt">
-                <span className="kbd">SPACE</span>
-                <Text size="lg" fw={500}>{t.pressStart}</Text>
-              </div>
-            )}
-          </div>
-          <Text c="dimmed" size="xs" className="stage-foot">{run ? t.pressCancel : setupLabel(s, t)}</Text>
-        </section>
-
-        <Scoreboard t={t} scores={scores} setScores={setScores} current={configKey(s)} />
-      </main>
-
-      <Modal opened={!!result} onClose={() => setResult(null)} title={t.result} centered radius="sm">
-        {result && (
-          <form onSubmit={(e) => { e.preventDefault(); save(); }}>
-            <Stack>
-              <Group grow>
-                <Stat label={t.score} value={result.mode === 'endless' ? String(result.score) : `${result.score}/${result.total}`} big />
-                <Stat label={t.avg} value={fmtMs(result.avgMs)} big />
-              </Group>
-              <Text c="dimmed" size="xs" ta="center">{setupLabel(result, t)}</Text>
-              <TextInput label={t.yourName} value={name} onChange={(e) => setName(e.currentTarget.value)} maxLength={24} data-autofocus />
-              <Group grow>
-                <Button variant="default" onClick={start}>{t.again}</Button>
-                <Button type="submit" disabled={!name.trim()}>{t.save}</Button>
-              </Group>
-            </Stack>
-          </form>
+              <span><FontAwesomeIcon icon={faStopwatch} fixedWidth /> {fmtMs(avg(run.times))}</span>
+            </TextUI>
+            <div className="sc-scale">
+              <SkillCheck key={run.round} areaSize={s.areaSize} speedMultiplier={s.speedMultiplier} keys={s.keys} onComplete={onComplete} />
+            </div>
+          </>
+        ) : (
+          <TextUI>[SPACE] - {t.start}</TextUI>
         )}
-      </Modal>
+      </section>
+
+      <Scoreboard t={t} scores={scores} setScores={setScores} current={configKey(s)} onClear={() => openDialog('clear')} />
+
+      <Dialog opened={dialog === 'custom'} heading={t.custom} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
+        cancelLabel={t.cancel} confirmLabel={t.confirm}>
+        <div>
+          <Text fz={14} fw={500}>{t.areaSize} · {draft.areaSize}°</Text>
+          <Slider mb={10} min={5} max={180} value={draft.areaSize} label={null}
+            onChange={(v) => setDraft((d) => ({ ...d, areaSize: v }))} marks={[{ value: 5, label: 5 }, { value: 180, label: 180 }]} />
+        </div>
+        <div>
+          <Text fz={14} fw={500}>{t.speed} · ×{draft.speedMultiplier}</Text>
+          <Slider mb={10} min={0.25} max={5} step={0.05} value={draft.speedMultiplier} label={null}
+            onChange={(v) => setDraft((d) => ({ ...d, speedMultiplier: Math.round(v * 100) / 100 }))}
+            marks={[{ value: 0.25, label: 0.25 }, { value: 5, label: 5 }]} />
+        </div>
+      </Dialog>
+
+      <Dialog opened={dialog === 'keys'} heading={t.keys} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
+        cancelLabel={t.cancel} confirmLabel={t.confirm}>
+        <TextInput label={t.keys} placeholder="w, a, s, d" value={draft.keys} data-autofocus
+          leftSection={<FontAwesomeIcon icon={faKeyboard} fixedWidth />}
+          onChange={(e) => { const keys = e.currentTarget.value; setDraft((d) => ({ ...d, keys })); }} />
+      </Dialog>
+
+      <Dialog opened={dialog === 'count'} heading={t.fixed} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
+        cancelLabel={t.cancel} confirmLabel={t.confirm}>
+        <NumberInput label={t.count} min={1} max={100} hideControls value={draft.count} data-autofocus
+          leftSection={<FontAwesomeIcon icon={faListOl} fixedWidth />}
+          onChange={(v) => setDraft((d) => ({ ...d, count: Number(v) }))} />
+      </Dialog>
+
+      <Dialog opened={dialog === 'clear'} heading={t.clearConfirm} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
+        cancelLabel={t.cancel} confirmLabel={t.confirm} />
+
+      <Dialog opened={!!result} heading={t.result} onCancel={() => setResult(null)} onConfirm={save}
+        cancelLabel={t.cancel} confirmLabel={t.confirm} confirmDisabled={!name.trim()}>
+        {result && (
+          <div className="result">
+            <span>
+              <FontAwesomeIcon icon={result.mode === 'endless' ? faFire : faCheck} fixedWidth />{' '}
+              {result.mode === 'endless' ? result.score : `${result.score}/${result.total}`}
+            </span>
+            <span><FontAwesomeIcon icon={faStopwatch} fixedWidth /> {fmtMs(result.avgMs)}</span>
+          </div>
+        )}
+        <TextInput label={t.name} value={name} maxLength={24} data-autofocus
+          onChange={(e) => setName(e.currentTarget.value)} />
+      </Dialog>
     </div>
   );
 }
 
-function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {
-  return (
-    <div className={`stat ${big ? 'big' : ''}`}>
-      <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
-    </div>
-  );
-}
-
-function Scoreboard({ t, scores, setScores, current }: {
-  t: Dict; scores: Entry[]; setScores: (fn: (prev: Entry[]) => Entry[]) => void; current: string;
+function Scoreboard({ t, scores, setScores, current, onClear }: {
+  t: Dict; scores: Entry[]; setScores: (fn: (prev: Entry[]) => Entry[]) => void; current: string; onClear: () => void;
 }) {
-  const [tab, setTab] = useState<string | null>('local');
+  const [hofView, setHofView] = useState(false);
   const [onlyCurrent, setOnlyCurrent] = useState(true);
   const [hof, setHof] = useState<Entry[] | 'error' | null>(null);
   const [msg, setMsg] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (tab !== 'hof' || hof) return;
+    if (!hofView || hof) return;
     fetch(`${import.meta.env.BASE_URL}scoreboard.json`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setHof(parseEntries(d)))
       .catch(() => setHof('error'));
-  }, [tab, hof]);
+  }, [hofView, hof]);
 
-  const source = tab === 'hof' ? (Array.isArray(hof) ? hof : []) : scores;
+  const source = hofView ? (Array.isArray(hof) ? hof : []) : scores;
   const rows = useMemo(
     () => sortEntries(onlyCurrent ? source.filter((e) => configKey(e) === current) : source).slice(0, 100),
     [source, onlyCurrent, current],
@@ -290,7 +286,7 @@ function Scoreboard({ t, scores, setScores, current }: {
     URL.revokeObjectURL(a.href);
   };
 
-  const importJson = async (file: File | null) => {
+  const importJson = async (file: File | undefined) => {
     if (!file) return;
     let parsed: Entry[] = [];
     try {
@@ -299,64 +295,39 @@ function Scoreboard({ t, scores, setScores, current }: {
       /* invalid JSON → treated as empty */
     }
     setMsg(parsed.length ? t.imported.replace('{n}', String(parsed.length)) : t.importFailed);
+    setTimeout(() => setMsg(''), 3000);
     if (parsed.length) setScores((prev) => mergeEntries(prev, parsed));
   };
 
   return (
-    <Paper className="card" p="md" radius="sm" shadow="sm">
-      <Stack gap="sm">
-        <Title order={4}>{t.scoreboard}</Title>
-        <Tabs value={tab} onChange={setTab}>
-          <Tabs.List grow>
-            <Tabs.Tab value="local">{t.local}</Tabs.Tab>
-            <Tabs.Tab value="hof">{t.hallOfFame}</Tabs.Tab>
-          </Tabs.List>
-        </Tabs>
-        <Switch label={t.onlyCurrent} checked={onlyCurrent} onChange={(e) => setOnlyCurrent(e.currentTarget.checked)} />
-        <ScrollArea.Autosize mah={440}>
-          {tab === 'hof' && hof === 'error' ? (
-            <Text c="red" size="sm">{t.hofError}</Text>
-          ) : rows.length === 0 ? (
-            <Text c="dimmed" size="sm" ta="center" py="lg">{t.empty}</Text>
-          ) : (
-            <Table striped highlightOnHover verticalSpacing={6} fz="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>#</Table.Th>
-                  <Table.Th>{t.name}</Table.Th>
-                  <Table.Th>{t.score}</Table.Th>
-                  <Table.Th>{t.avg}</Table.Th>
-                  {!onlyCurrent && <Table.Th>{t.setup}</Table.Th>}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((e, i) => (
-                  <Table.Tr key={`${e.name}${e.date}${i}`} title={new Date(e.date).toLocaleString()}>
-                    <Table.Td className={i < 3 ? `rank rank-${i}` : 'rank'}>{i + 1}</Table.Td>
-                    <Table.Td>{e.name}</Table.Td>
-                    <Table.Td fw={500}>{e.mode === 'endless' ? e.score : `${e.score}/${e.total}`}</Table.Td>
-                    <Table.Td>{fmtMs(e.avgMs)}</Table.Td>
-                    {!onlyCurrent && <Table.Td c="dimmed" fz="xs">{setupLabel(e, t)}</Table.Td>}
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          )}
-        </ScrollArea.Autosize>
-        {tab === 'local' ? (
-          <Group gap="xs" grow>
-            <Button size="xs" variant="light" onClick={exportJson} disabled={!scores.length}>{t.export}</Button>
-            <FileButton onChange={importJson} accept="application/json,.json">
-              {(props) => <Button size="xs" variant="light" {...props}>{t.import}</Button>}
-            </FileButton>
-            <Button size="xs" variant="subtle" color="red" disabled={!scores.length}
-              onClick={() => confirm(t.clearConfirm) && setScores(() => [])}>{t.clear}</Button>
-          </Group>
-        ) : (
-          <Text c="dimmed" size="xs">{t.hofHint}</Text>
-        )}
-        {msg && tab === 'local' && <Text size="xs" c="blue">{msg}</Text>}
-      </Stack>
-    </Paper>
+    <Menu title={hofView ? t.hallOfFame : t.scoreboard} onBack={hofView ? () => setHofView(false) : undefined}>
+      <Option icon={faFilter} title={t.filter} description={onlyCurrent ? t.current : t.all} onClick={() => setOnlyCurrent((v) => !v)} />
+      {!hofView && (
+        <>
+          <Option icon={faEarthEurope} title={t.hallOfFame} arrow onClick={() => setHofView(true)} />
+          <Option icon={faDownload} title={t.export} onClick={exportJson} disabled={!scores.length} />
+          <Option icon={faUpload} title={t.import} description={msg || undefined} onClick={() => fileRef.current?.click()} />
+          <Option icon={faTrash} title={t.clear} onClick={onClear} disabled={!scores.length} />
+          <input ref={fileRef} type="file" accept="application/json,.json" hidden
+            onChange={(e) => { importJson(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
+        </>
+      )}
+      {hofView && hof === 'error' ? (
+        <Option readOnly title={t.loadError} />
+      ) : rows.length === 0 ? (
+        <Option readOnly title={t.empty} />
+      ) : (
+        rows.map((e, i) => (
+          <Option
+            key={`${e.name}${e.date}${i}`}
+            readOnly
+            icon={faTrophy}
+            iconColor={RANK_COLORS[i] ?? 'var(--mantine-color-dark-3)'}
+            title={`${i + 1}. ${e.name}`}
+            description={`${e.mode === 'endless' ? e.score : `${e.score}/${e.total}`} · ${fmtMs(e.avgMs)}${onlyCurrent ? '' : ` · ${setupLabel(e, t)}`}`}
+          />
+        ))
+      )}
+    </Menu>
   );
 }
