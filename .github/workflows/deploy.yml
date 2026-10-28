@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  deployments: write
 
 concurrency:
   group: pages
@@ -35,3 +36,11 @@ jobs:
           path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
+      # Pages is one site; drop the old deployment records so only the latest is listed
+      - name: Remove old deployment records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/deployments?environment=github-pages" --paginate -q '.[].id' \
+            | tail -n +2 \
+            | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/deployments/{}"

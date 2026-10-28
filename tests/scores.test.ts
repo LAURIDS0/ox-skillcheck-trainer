@@ -19,8 +19,9 @@ test('parseEntries keeps valid entries and drops bad ones', () => {
       { ...base, name: 'x'.repeat(40) },
     ],
   });
-  assert.equal(parsed.length, 2);
-  assert.equal(parsed[1].name.length, 24);
+  assert.equal(parsed.length, 3);
+  assert.equal(parsed[1].name, '?'); // blank name shown as '?', not dropped
+  assert.equal(parsed[2].name.length, 24);
   assert.deepEqual(parseEntries('nope'), []);
   assert.deepEqual(parseEntries([base]).length, 1);
 });

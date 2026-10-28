@@ -71,7 +71,7 @@ export function parseEntries(data: unknown): Entry[] {
   for (const e of list) {
     if (!e || typeof e !== 'object') continue;
     const { name, mode, areaSize, speedMultiplier, keys, count, score, total, avgMs, date } = e as Record<string, unknown>;
-    if (typeof name !== 'string' || !name.trim()) continue;
+    if (typeof name !== 'string') continue;
     if (mode !== 'endless' && mode !== 'fixed') continue;
     if (!num(areaSize, 1, 360) || !num(speedMultiplier, 0.01, 100)) continue;
     if (!Array.isArray(keys) || !keys.every((k) => typeof k === 'string' && KEY_RE.test(k))) continue;
@@ -80,7 +80,7 @@ export function parseEntries(data: unknown): Entry[] {
     if (!num(avgMs, 0, 1e6)) continue;
     if (typeof date !== 'string' || Number.isNaN(Date.parse(date))) continue;
     out.push({
-      name: name.trim().slice(0, 24),
+      name: name.trim().slice(0, 24) || '?',
       mode,
       areaSize: areaSize as number,
       speedMultiplier: speedMultiplier as number,
