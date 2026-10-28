@@ -43,4 +43,7 @@ jobs:
         run: |
           gh api "repos/${{ github.repository }}/deployments?environment=github-pages" --paginate -q '.[].id' \
             | tail -n +2 \
-            | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/deployments/{}"
+            | while read -r id; do
+                gh api -X POST "repos/${{ github.repository }}/deployments/$id/statuses" -f state=inactive > /dev/null
+                gh api -X DELETE "repos/${{ github.repository }}/deployments/$id"
+              done
