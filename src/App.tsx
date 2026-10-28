@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NumberInput, Slider, Text, TextInput } from '@mantine/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCheck, faCode, faDownload, faEarthEurope, faFilter, faFire, faGauge, faInfinity, faKeyboard, faLanguage,
-  faListOl, faPlay, faRepeat, faSliders, faStopwatch, faTrash, faTrophy, faUpload,
+  faCheck, faCode, faCopy, faFire, faGauge, faInfinity, faKeyboard, faLanguage, faListOl, faPlay, faRepeat,
+  faSliders, faStar, faStopwatch, faTrophy, faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import SkillCheck from './SkillCheck';
 import { Dialog, Menu, Option, TextUI } from './ox';
 import { dicts, type Dict, type Lang } from './i18n';
 import {
-  configKey, DEFAULT_SETTINGS, KEY_RE, mergeEntries, parseEntries, presetOf, PRESETS, sortEntries,
+  configKey, DEFAULT_SETTINGS, isBetter, KEY_RE, parseEntries, presetOf, PRESETS, sortEntries,
   type Entry, type Settings,
 } from './scores';
 
@@ -25,16 +25,16 @@ function store(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* private mode / blocked storage: scores just won't persist */
+    /* private mode / blocked storage: bests just won't persist */
   }
 }
 
 interface Run { round: number; successes: number; times: number[] }
-type Result = Omit<Entry, 'name' | 'date'>;
-type DialogKind = 'custom' | 'keys' | 'count' | 'clear' | null;
+type DialogKind = 'custom' | 'keys' | 'count' | 'name' | null;
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const fmtMs = (ms: number) => (ms ? `${Math.round(ms)} ms` : '—');
+const fmtScore = (e: Entry) => (e.mode === 'endless' ? String(e.score) : `${e.score}/${e.total}`);
 const keysLabel = (keys: string[]) => (keys.join(' ') || 'e').toUpperCase();
 const RANK_COLORS = ['#fcc419', '#ced4da', '#e8590c'];
 
@@ -53,22 +53,26 @@ function luaSnippet(s: Settings) {
   return `lib.skillCheck(${arr}${s.keys.length ? `, { ${s.keys.map((k) => `'${k}'`).join(', ')} }` : ''})`;
 }
 
+// Best attempt per setup, keyed by configKey
+const loadBests = () =>
+  Object.fromEntries(parseEntries(Object.values(load('oxsc.best', {}))).map((e) => [configKey(e), e]));
+
 export default function App() {
   const [lang, setLang] = useState<Lang>(() => load('oxsc.lang', navigator.language.startsWith('da') ? 'da' : 'en'));
   const t = dicts[lang] ?? dicts.en;
   const [s, setS] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...load('oxsc.settings', {}) }));
-  const [scores, setScores] = useState<Entry[]>(() => parseEntries(load('oxsc.scores', [])));
+  const [bests, setBests] = useState<Record<string, Entry>>(loadBests);
   const [name, setName] = useState<string>(() => load('oxsc.name', ''));
   const [run, setRun] = useState<Run | null>(null);
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<{ entry: Entry; isBest: boolean } | null>(null);
   const [view, setView] = useState<'main' | 'difficulty' | 'mode'>('main');
   const [dialog, setDialog] = useState<DialogKind>(null);
-  const [draft, setDraft] = useState({ areaSize: 0, speedMultiplier: 0, keys: '', count: 0 });
-  const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState({ areaSize: 0, speedMultiplier: 0, keys: '', count: 0, name: '' });
+  const [copied, setCopied] = useState<'lua' | 'best' | null>(null);
 
   useEffect(() => store('oxsc.lang', lang), [lang]);
   useEffect(() => store('oxsc.settings', s), [s]);
-  useEffect(() => store('oxsc.scores', scores), [scores]);
+  useEffect(() => store('oxsc.best', bests), [bests]);
   useEffect(() => store('oxsc.name', name), [name]);
 
   const update = (patch: Partial<Settings>) =>
@@ -78,16 +82,30 @@ export default function App() {
     });
 
   const openDialog = (kind: DialogKind) => {
-    setDraft({ areaSize: s.areaSize, speedMultiplier: s.speedMultiplier, keys: s.keys.join(', '), count: s.count });
+    setDraft({ areaSize: s.areaSize, speedMultiplier: s.speedMultiplier, keys: s.keys.join(', '), count: s.count, name });
     setDialog(kind);
   };
+
+  const copy = (what: 'lua' | 'best', text: string) =>
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1500);
+    });
+
+  // One JSON line per setup, ready to paste into public/scoreboard.json
+  const copyBests = (playerName: string) =>
+    copy('best', sortEntries(Object.values(bests)).map((e) => JSON.stringify({ ...e, name: playerName })).join(',\n'));
 
   const confirmDialog = () => {
     if (dialog === 'custom') update({ areaSize: draft.areaSize, speedMultiplier: draft.speedMultiplier });
     if (dialog === 'keys')
       update({ keys: [...new Set(draft.keys.toLowerCase().split(/[\s,]+/).filter((k) => KEY_RE.test(k)))] });
     if (dialog === 'count') update({ mode: 'fixed', count: Math.min(100, Math.max(1, Math.round(draft.count) || 1)) });
-    if (dialog === 'clear') setScores(() => []);
+    if (dialog === 'name') {
+      const n = draft.name.trim().slice(0, 24);
+      setName(n);
+      if (n) copyBests(n);
+    }
     setDialog(null);
   };
 
@@ -99,7 +117,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dialog || result) return;
+      if (dialog) return;
       if (e.key === ' ' && !run) {
         e.preventDefault();
         start();
@@ -120,7 +138,8 @@ export default function App() {
     const over = s.mode === 'endless' ? !ok : next.round >= s.count;
     if (!over) return setRun(next);
     setRun(null);
-    setResult({
+    const entry: Entry = {
+      name: name || '?',
       mode: s.mode,
       areaSize: s.areaSize,
       speedMultiplier: s.speedMultiplier,
@@ -129,23 +148,16 @@ export default function App() {
       score: next.successes,
       total: next.round,
       avgMs: Math.round(avg(next.times)),
-    });
-  };
-
-  const save = () => {
-    if (!result || !name.trim()) return;
-    setScores((prev) => [...prev, { ...result, name: name.trim().slice(0, 24), date: new Date().toISOString() }]);
-    setResult(null);
-  };
-
-  const copyLua = () => {
-    navigator.clipboard?.writeText(luaSnippet(s)).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+      date: new Date().toISOString(),
+    };
+    const key = configKey(entry);
+    const isBest = entry.score > 0 && isBetter(entry, bests[key]);
+    if (isBest) setBests((b) => ({ ...b, [key]: entry }));
+    setResult({ entry, isBest });
   };
 
   const busy = !!run;
+  const currentBest = bests[configKey(s)];
 
   return (
     <div className="layout">
@@ -157,8 +169,13 @@ export default function App() {
           <Option icon={faKeyboard} title={t.keys} description={keysLabel(s.keys)} onClick={() => openDialog('keys')} disabled={busy} />
           <Option icon={faRepeat} title={t.mode} description={s.mode === 'endless' ? t.endless : `${t.fixed} · ${s.count}`}
             arrow onClick={() => setView('mode')} disabled={busy} />
-          <Option icon={copied ? faCheck : faCode} title={copied ? t.copied : t.copyLua}
-            description={<code className="lua">{luaSnippet(s)}</code>} onClick={copyLua} />
+          <Option icon={faUser} title={t.name} description={name || '—'} onClick={() => openDialog('name')} disabled={busy} />
+          <Option icon={copied === 'best' ? faCheck : faCopy} title={copied === 'best' ? t.copied : t.copyBest}
+            description={currentBest ? `${fmtScore(currentBest)} · ${fmtMs(currentBest.avgMs)}` : t.noBest}
+            disabled={busy || !Object.keys(bests).length}
+            onClick={() => (name ? copyBests(name) : openDialog('name'))} />
+          <Option icon={copied === 'lua' ? faCheck : faCode} title={copied === 'lua' ? t.copied : t.copyLua}
+            description={<code className="lua">{luaSnippet(s)}</code>} onClick={() => copy('lua', luaSnippet(s))} />
           <Option icon={faLanguage} title={t.language} description={t.langName} onClick={() => setLang(lang === 'da' ? 'en' : 'da')} />
         </Menu>
       )}
@@ -200,11 +217,11 @@ export default function App() {
             </div>
           </>
         ) : (
-          <TextUI>[SPACE] - {t.start}</TextUI>
+          !result && <TextUI>[SPACE] - {t.start}</TextUI>
         )}
       </section>
 
-      <Scoreboard t={t} scores={scores} setScores={setScores} current={configKey(s)} onClear={() => openDialog('clear')} />
+      <Scoreboard t={t} />
 
       <Dialog opened={dialog === 'custom'} heading={t.custom} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
         cancelLabel={t.cancel} confirmLabel={t.confirm}>
@@ -235,96 +252,56 @@ export default function App() {
           onChange={(v) => setDraft((d) => ({ ...d, count: Number(v) }))} />
       </Dialog>
 
-      <Dialog opened={dialog === 'clear'} heading={t.clearConfirm} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
-        cancelLabel={t.cancel} confirmLabel={t.confirm} />
+      <Dialog opened={dialog === 'name'} heading={t.name} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
+        cancelLabel={t.cancel} confirmLabel={t.confirm} confirmDisabled={!draft.name.trim()}>
+        <TextInput label={t.name} value={draft.name} maxLength={24} data-autofocus
+          leftSection={<FontAwesomeIcon icon={faUser} fixedWidth />}
+          onChange={(e) => { const n = e.currentTarget.value; setDraft((d) => ({ ...d, name: n })); }} />
+      </Dialog>
 
-      <Dialog opened={!!result} heading={t.result} onCancel={() => setResult(null)} onConfirm={save}
-        cancelLabel={t.cancel} confirmLabel={t.confirm} confirmDisabled={!name.trim()}>
+      <Dialog opened={!!result} heading={result?.isBest ? t.newBest : t.result} onCancel={() => setResult(null)} onConfirm={start}>
         {result && (
-          <div className="result">
-            <span>
-              <FontAwesomeIcon icon={result.mode === 'endless' ? faFire : faCheck} fixedWidth />{' '}
-              {result.mode === 'endless' ? result.score : `${result.score}/${result.total}`}
-            </span>
-            <span><FontAwesomeIcon icon={faStopwatch} fixedWidth /> {fmtMs(result.avgMs)}</span>
-          </div>
+          <>
+            <div className="result">
+              <span>
+                <FontAwesomeIcon icon={result.isBest ? faStar : result.entry.mode === 'endless' ? faFire : faCheck} fixedWidth />{' '}
+                {fmtScore(result.entry)}
+              </span>
+              <span><FontAwesomeIcon icon={faStopwatch} fixedWidth /> {fmtMs(result.entry.avgMs)}</span>
+            </div>
+            <div className="result-hint"><TextUI>[SPACE] - {t.again}</TextUI></div>
+          </>
         )}
-        <TextInput label={t.name} value={name} maxLength={24} data-autofocus
-          onChange={(e) => setName(e.currentTarget.value)} />
       </Dialog>
     </div>
   );
 }
 
-function Scoreboard({ t, scores, setScores, current, onClear }: {
-  t: Dict; scores: Entry[]; setScores: (fn: (prev: Entry[]) => Entry[]) => void; current: string; onClear: () => void;
-}) {
-  const [hofView, setHofView] = useState(false);
-  const [onlyCurrent, setOnlyCurrent] = useState(true);
-  const [hof, setHof] = useState<Entry[] | 'error' | null>(null);
-  const [msg, setMsg] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
+function Scoreboard({ t }: { t: Dict }) {
+  const [entries, setEntries] = useState<Entry[] | 'error' | null>(null);
 
   useEffect(() => {
-    if (!hofView || hof) return;
     fetch(`${import.meta.env.BASE_URL}scoreboard.json`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setHof(parseEntries(d)))
-      .catch(() => setHof('error'));
-  }, [hofView, hof]);
-
-  const source = hofView ? (Array.isArray(hof) ? hof : []) : scores;
-  const rows = useMemo(
-    () => sortEntries(onlyCurrent ? source.filter((e) => configKey(e) === current) : source).slice(0, 100),
-    [source, onlyCurrent, current],
-  );
-
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify({ version: 1, entries: sortEntries(scores) }, null, 2)], { type: 'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'scoreboard.json' });
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-
-  const importJson = async (file: File | undefined) => {
-    if (!file) return;
-    let parsed: Entry[] = [];
-    try {
-      parsed = parseEntries(JSON.parse(await file.text()));
-    } catch {
-      /* invalid JSON → treated as empty */
-    }
-    setMsg(parsed.length ? t.imported.replace('{n}', String(parsed.length)) : t.importFailed);
-    setTimeout(() => setMsg(''), 3000);
-    if (parsed.length) setScores((prev) => mergeEntries(prev, parsed));
-  };
+      .then((d) => setEntries(sortEntries(parseEntries(d)).slice(0, 100)))
+      .catch(() => setEntries('error'));
+  }, []);
 
   return (
-    <Menu title={hofView ? t.hallOfFame : t.scoreboard} onBack={hofView ? () => setHofView(false) : undefined}>
-      <Option icon={faFilter} title={t.filter} description={onlyCurrent ? t.current : t.all} onClick={() => setOnlyCurrent((v) => !v)} />
-      {!hofView && (
-        <>
-          <Option icon={faEarthEurope} title={t.hallOfFame} arrow onClick={() => setHofView(true)} />
-          <Option icon={faDownload} title={t.export} onClick={exportJson} disabled={!scores.length} />
-          <Option icon={faUpload} title={t.import} description={msg || undefined} onClick={() => fileRef.current?.click()} />
-          <Option icon={faTrash} title={t.clear} onClick={onClear} disabled={!scores.length} />
-          <input ref={fileRef} type="file" accept="application/json,.json" hidden
-            onChange={(e) => { importJson(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
-        </>
-      )}
-      {hofView && hof === 'error' ? (
+    <Menu title={t.scoreboard}>
+      {entries === 'error' ? (
         <Option readOnly title={t.loadError} />
-      ) : rows.length === 0 ? (
+      ) : entries && !entries.length ? (
         <Option readOnly title={t.empty} />
       ) : (
-        rows.map((e, i) => (
+        entries?.map((e, i) => (
           <Option
             key={`${e.name}${e.date}${i}`}
             readOnly
             icon={faTrophy}
             iconColor={RANK_COLORS[i] ?? 'var(--mantine-color-dark-3)'}
             title={`${i + 1}. ${e.name}`}
-            description={`${e.mode === 'endless' ? e.score : `${e.score}/${e.total}`} · ${fmtMs(e.avgMs)}${onlyCurrent ? '' : ` · ${setupLabel(e, t)}`}`}
+            description={`${fmtScore(e)} · ${fmtMs(e.avgMs)} · ${setupLabel(e, t)}`}
           />
         ))
       )}

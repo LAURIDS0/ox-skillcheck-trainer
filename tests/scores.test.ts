@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEntries, sortEntries, mergeEntries, configKey, presetOf, type Entry } from '../src/scores.ts';
+import { parseEntries, sortEntries, isBetter, configKey, presetOf, type Entry } from '../src/scores.ts';
 
 const base: Entry = {
   name: 'a', mode: 'endless', areaSize: 50, speedMultiplier: 1, keys: ['e'], count: null,
@@ -35,8 +35,11 @@ test('sortEntries: score desc, then faster avg, 0 avg last', () => {
   assert.deepEqual(s.map((e) => e.name), ['best', 'fast', 'slow', 'none']);
 });
 
-test('mergeEntries dedupes, configKey ignores key order, presetOf', () => {
-  assert.equal(mergeEntries([base], [base, { ...base, score: 1 }]).length, 2);
+test('isBetter, configKey ignores key order, presetOf', () => {
+  assert.ok(isBetter(base, undefined));
+  assert.ok(isBetter({ ...base, score: 6 }, base));
+  assert.ok(isBetter({ ...base, avgMs: 800 }, base));
+  assert.ok(!isBetter(base, base));
   assert.equal(configKey({ ...base, keys: ['w', 'a'] }), configKey({ ...base, keys: ['a', 'w'] }));
   assert.equal(presetOf(40, 1.5), 'medium');
   assert.equal(presetOf(41, 1.5), 'custom');

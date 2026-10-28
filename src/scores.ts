@@ -52,13 +52,18 @@ export function configKey(e: Pick<Entry, 'mode' | 'areaSize' | 'speedMultiplier'
   return [e.mode, e.areaSize, e.speedMultiplier, e.mode === 'fixed' ? e.count : '', [...e.keys].sort().join('')].join('|');
 }
 
+// <0 when a ranks above b: more hits first, then faster average (0 = no hits, ranks last)
+const compare = (a: Entry, b: Entry) => b.score - a.score || (a.avgMs || Infinity) - (b.avgMs || Infinity);
+
+export const isBetter = (a: Entry, b: Entry | undefined) => !b || compare(a, b) < 0;
+
 export function sortEntries(entries: Entry[]): Entry[] {
-  return [...entries].sort((a, b) => b.score - a.score || (a.avgMs || Infinity) - (b.avgMs || Infinity));
+  return [...entries].sort(compare);
 }
 
 const num = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 
-// Trust boundary: imported files and the shared scoreboard.json. Invalid entries are dropped.
+// Trust boundary: the shared scoreboard.json and saved bests in localStorage. Invalid entries are dropped.
 export function parseEntries(data: unknown): Entry[] {
   const list = Array.isArray(data) ? data : (data as { entries?: unknown })?.entries;
   if (!Array.isArray(list)) return [];
@@ -88,9 +93,4 @@ export function parseEntries(data: unknown): Entry[] {
     });
   }
   return out;
-}
-
-export function mergeEntries(a: Entry[], b: Entry[]): Entry[] {
-  const seen = new Set(a.map((e) => `${e.name}|${e.date}|${e.score}`));
-  return [...a, ...b.filter((e) => !seen.has(`${e.name}|${e.date}|${e.score}`))];
 }

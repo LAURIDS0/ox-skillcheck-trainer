@@ -135,3 +135,4 @@ body {
   align-items: center;
   justify-content: center;
 }
+.result-hint { display: flex; justify-content: center; }

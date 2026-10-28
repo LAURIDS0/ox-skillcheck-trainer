@@ -9,11 +9,12 @@ Practice [ox_lib](https://github.com/overextended/ox_lib) `lib.skillCheck` in th
 - **Endless** mode (streak until you miss) or **Fixed** mode (N checks, hits/total)
 - Copyable Lua snippet for the current settings
 - Danish / English
-- Scoreboard: local (browser) with JSON export/import, plus a shared **Hall of Fame** from [`public/scoreboard.json`](public/scoreboard.json)
+- Your best attempt per setup is saved in the browser
+- Scoreboard from [`public/scoreboard.json`](public/scoreboard.json)
 
-## Getting on the Hall of Fame
+## Getting on the scoreboard
 
-Export your scores (Scoreboard → Export), copy the entries you want into `entries` in `public/scoreboard.json` and open a pull request.
+Set your name and press **Copy best**, then send the copied lines to the repo owner. They get pasted into `entries` in `public/scoreboard.json`.
 
 ## Development
 

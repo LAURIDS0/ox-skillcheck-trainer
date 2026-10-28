@@ -63,8 +63,8 @@ export function Dialog({ opened, heading, onCancel, onConfirm, cancelLabel, conf
   heading: string;
   onCancel: () => void;
   onConfirm: () => void;
-  cancelLabel: string;
-  confirmLabel: string;
+  cancelLabel?: string;
+  confirmLabel?: string; // no labels = no buttons
   confirmDisabled?: boolean;
   children?: ReactNode;
 }) {
@@ -84,10 +84,12 @@ export function Dialog({ opened, heading, onCancel, onConfirm, cancelLabel, conf
       <form onSubmit={(e) => { e.preventDefault(); if (!confirmDisabled) onConfirm(); }}>
         <Stack>
           {children}
-          <Group justify="flex-end" gap={10}>
-            <Button tt="uppercase" variant="default" onClick={onCancel} mr={3}>{cancelLabel}</Button>
-            <Button tt="uppercase" variant="light" type="submit" disabled={confirmDisabled}>{confirmLabel}</Button>
-          </Group>
+          {confirmLabel && (
+            <Group justify="flex-end" gap={10}>
+              <Button tt="uppercase" variant="default" onClick={onCancel} mr={3}>{cancelLabel}</Button>
+              <Button tt="uppercase" variant="light" type="submit" disabled={confirmDisabled}>{confirmLabel}</Button>
+            </Group>
+          )}
         </Stack>
       </form>
     </Modal>
