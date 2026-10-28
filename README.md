@@ -14,7 +14,15 @@ Practice [ox_lib](https://github.com/overextended/ox_lib) `lib.skillCheck` in th
 
 ## Getting on the scoreboard
 
-Set your name and press **Copy best**, then send the copied lines to the repo owner. They get pasted into `entries` in `public/scoreboard.json`.
+Set your name and press **Send best**. Your bests are posted to the owner's Discord as ready-to-paste lines for `entries` in `public/scoreboard.json`.
+
+Submissions go through a Cloudflare Worker (`worker/`) that validates them, rate limits per IP and keeps the webhook URL secret:
+
+```sh
+cd worker
+npx wrangler deploy
+npx wrangler secret put DISCORD_WEBHOOK
+```
 
 ## Development
 

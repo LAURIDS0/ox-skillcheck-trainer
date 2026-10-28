@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NumberInput, Slider, Text, TextInput } from '@mantine/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCalendar, faCheck, faClone, faCode, faCopy, faFire, faGauge, faInfinity, faKeyboard, faLanguage, faListOl, faPlay, faRepeat,
+  faCalendar, faCheck, faClone, faCode, faFire, faPaperPlane, faTriangleExclamation, faGauge, faInfinity, faKeyboard, faLanguage, faListOl, faPlay, faRepeat,
   faSliders, faStar, faStopwatch, faTrophy, faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import SkillCheck from './SkillCheck';
@@ -62,6 +62,9 @@ const entrySettings = (e: Entry, fallbackCount: number): Settings => ({
   count: e.count ?? fallbackCount,
 });
 
+// Cloudflare Worker (worker/) that holds the Discord webhook as a secret
+const SUBMIT_URL = 'https://ox-skillcheck-submit.laur762d.workers.dev';
+
 // Best attempt per setup, keyed by configKey
 const loadBests = () =>
   Object.fromEntries(parseEntries(Object.values(load('oxsc.best', {}))).map((e) => [configKey(e), e]));
@@ -77,7 +80,8 @@ export default function App() {
   const [view, setView] = useState<'main' | 'difficulty' | 'mode'>('main');
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [draft, setDraft] = useState({ areaSize: 0, speedMultiplier: 0, keys: '', count: 0, name: '' });
-  const [copied, setCopied] = useState<'lua' | 'best' | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [send, setSend] = useState<'sending' | 'sent' | 'error' | null>(null);
 
   useEffect(() => store('oxsc.lang', lang), [lang]);
   useEffect(() => store('oxsc.settings', s), [s]);
@@ -95,15 +99,27 @@ export default function App() {
     setDialog(kind);
   };
 
-  const copy = (what: 'lua' | 'best', text: string) =>
-    navigator.clipboard?.writeText(text).then(() => {
-      setCopied(what);
-      setTimeout(() => setCopied(null), 1500);
+  const copyLua = () =>
+    navigator.clipboard?.writeText(luaSnippet(s)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
     });
 
-  // One JSON line per setup, ready to paste into public/scoreboard.json
-  const copyBests = (playerName: string) =>
-    copy('best', sortEntries(Object.values(bests)).map((e) => JSON.stringify({ ...e, name: playerName })).join(',\n'));
+  const sendBests = async (playerName: string) => {
+    setSend('sending');
+    let ok = false;
+    try {
+      ok = (await fetch(SUBMIT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: playerName, bests: Object.values(bests) }),
+      })).ok;
+    } catch {
+      /* network/CORS error → shown as failed */
+    }
+    setSend(ok ? 'sent' : 'error');
+    setTimeout(() => setSend(null), 2500);
+  };
 
   const confirmDialog = () => {
     if (dialog === 'custom') update({ areaSize: draft.areaSize, speedMultiplier: draft.speedMultiplier });
@@ -113,7 +129,7 @@ export default function App() {
     if (dialog === 'name') {
       const n = draft.name.trim().slice(0, 24);
       setName(n);
-      if (n) copyBests(n);
+      if (n) sendBests(n);
     }
     setDialog(null);
   };
@@ -179,12 +195,14 @@ export default function App() {
           <Option icon={faRepeat} title={t.mode} description={s.mode === 'endless' ? t.endless : `${t.fixed} · ${s.count}`}
             arrow onClick={() => setView('mode')} disabled={busy} />
           <Option icon={faUser} title={t.name} description={name || '—'} onClick={() => openDialog('name')} disabled={busy} />
-          <Option icon={copied === 'best' ? faCheck : faCopy} title={copied === 'best' ? t.copied : t.copyBest}
+          <Option
+            icon={send === 'sent' ? faCheck : send === 'error' ? faTriangleExclamation : faPaperPlane}
+            title={send === 'sent' ? t.sent : send === 'error' ? t.sendFailed : t.sendBest}
             description={currentBest ? `${fmtScore(currentBest)} · ${fmtMs(currentBest.avgMs)}` : t.noBest}
-            disabled={busy || !Object.keys(bests).length}
-            onClick={() => (name ? copyBests(name) : openDialog('name'))} />
-          <Option icon={copied === 'lua' ? faCheck : faCode} title={copied === 'lua' ? t.copied : t.copyLua}
-            description={<code className="lua">{luaSnippet(s)}</code>} onClick={() => copy('lua', luaSnippet(s))} />
+            disabled={busy || send === 'sending' || !Object.keys(bests).length}
+            onClick={() => (name ? sendBests(name) : openDialog('name'))} />
+          <Option icon={copied ? faCheck : faCode} title={copied ? t.copied : t.copyLua}
+            description={<code className="lua">{luaSnippet(s)}</code>} onClick={copyLua} />
           <Option icon={faLanguage} title={t.language} description={t.langName} onClick={() => setLang(lang === 'da' ? 'en' : 'da')} />
         </Menu>
       )}

@@ -1,0 +1,5 @@
+name = "ox-skillcheck-submit"
+main = "index.ts"
+compatibility_date = "2025-09-01"
+
+# Secret, set with: npx wrangler secret put DISCORD_WEBHOOK
