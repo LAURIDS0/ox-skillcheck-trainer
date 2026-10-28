@@ -1,4 +1,7 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {"name":" ","mode":"endless","areaSize":40,"speedMultiplier":1.5,"keys":["e"],"count":null,"score":26,"total":27,"avgMs":935,"date":"2026-10-28T11:22:57.974Z"},
+    {"name":" ","mode":"endless","areaSize":22,"speedMultiplier":1.95,"keys":["w","a","s","d"],"count":null,"score":5,"total":6,"avgMs":838,"date":"2026-10-28T11:21:25.398Z"}
+  ]
 }
