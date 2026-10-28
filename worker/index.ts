@@ -1,12 +1,12 @@
 // Receives "Send best" from the site and posts it to Discord. The webhook URL only lives here as a secret.
 import { parseEntries, presetOf, sortEntries, type Entry } from '../src/scores';
 
-interface Env { DISCORD_WEBHOOK: string }
+interface Env {
+  DISCORD_WEBHOOK: string;
+  LIMITER: { limit(opts: { key: string }): Promise<{ success: boolean }> };
+}
 
 const ORIGINS = ['https://laurids0.github.io', 'http://localhost:5173', 'http://localhost:4317'];
-const LIMIT_MS = 60_000;
-// shortcut: per-isolate memory, so the limit is per Cloudflare edge instance; use a KV/Durable Object if spam gets real
-const lastByIp = new Map<string, number>();
 
 const setup = (e: Entry) => {
   const p = presetOf(e.areaSize, e.speedMultiplier);
@@ -29,8 +29,7 @@ export default {
     if (!ORIGINS.includes(origin)) return reply(403);
 
     const ip = req.headers.get('CF-Connecting-IP') ?? '';
-    const now = Date.now();
-    if (now - (lastByIp.get(ip) ?? 0) < LIMIT_MS) return reply(429, 'Wait a minute');
+    if (!(await env.LIMITER.limit({ key: ip })).success) return reply(429, 'Wait a minute');
 
     const text = await req.text();
     if (text.length > 20_000) return reply(413);
@@ -46,7 +45,6 @@ export default {
     const bests = sortEntries(parseEntries(body.bests)).slice(0, 15).map((e) => ({ ...e, name }));
     if (!name || !bests.length) return reply(400);
 
-    lastByIp.set(ip, now);
     const res = await fetch(env.DISCORD_WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
