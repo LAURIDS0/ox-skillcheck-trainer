@@ -1,0 +1,146 @@
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(25, 113, 194, 0.18), transparent 60%),
+    radial-gradient(800px 500px at 100% 100%, rgba(25, 113, 194, 0.08), transparent 60%),
+    #101113;
+  min-height: 100vh;
+  color: #C1C2C5;
+}
+
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.brand { color: #fff; letter-spacing: 0.2px; }
+.brand-ox {
+  background: #1971c2;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 8px 2px;
+  margin-right: 4px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: 1fr; }
+  .stage { order: -1; }
+}
+
+.card { background: var(--mantine-color-dark-6); }
+.plain { border: 0; margin: 0; padding: 0; min-width: 0; }
+.lua { font-size: 11px; white-space: pre-wrap; word-break: break-all; background: var(--mantine-color-dark-7); }
+
+/* Stage */
+.stage {
+  position: relative;
+  min-height: 520px;
+  border-radius: 4px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.04), transparent 55%),
+    linear-gradient(180deg, #1A1B1E, #141517);
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px #2C2E33;
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  user-select: none;
+}
+.stage-hud {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+.stage-center {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.stage-foot { text-align: center; padding: 12px; }
+
+.stat {
+  background: rgba(37, 38, 43, 0.85);
+  border-radius: 4px;
+  padding: 8px 14px;
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+}
+.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: #909296; }
+.stat-value { font-size: 20px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.stat.big .stat-value { font-size: 30px; }
+
+.prompt { display: flex; flex-direction: column; align-items: center; gap: 14px; cursor: pointer; }
+.kbd {
+  background: #2C2E33;
+  border-radius: 5px;
+  padding: 10px 28px;
+  font-weight: 500;
+  font-size: 18px;
+  color: #fff;
+  box-shadow: 0 3px 0 #101113;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse { 50% { transform: translateY(-2px); box-shadow: 0 5px 0 #101113; } }
+
+/* Skillcheck — ox_lib sizes, scaled up for the browser */
+.sc-scale { transform: scale(2.6); }
+@media (max-width: 600px) { .sc-scale { transform: scale(1.8); } }
+.sc { position: relative; width: 120px; height: 120px; }
+.sc svg { display: block; overflow: visible; }
+.sc-track, .sc-area, .sc-indicator { fill: transparent; }
+.sc-track { stroke: #2C2E33; stroke-width: 8; }
+.sc-area { stroke: #1971c2; stroke-width: 8; }
+.sc-indicator { stroke: red; stroke-width: 16; }
+.sc-key {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #2C2E33;
+  width: 25px;
+  height: 25px;
+  border-radius: 5px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #C1C2C5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flash {
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: flash 450ms ease-out forwards;
+}
+.flash.ok { background: radial-gradient(circle, rgba(64, 192, 87, 0.28), transparent 65%); }
+.flash.bad { background: radial-gradient(circle, rgba(250, 82, 82, 0.32), transparent 65%); }
+@keyframes flash { from { opacity: 1; transform: scale(0.8); } to { opacity: 0; transform: scale(1.15); } }
+
+.rank { color: #909296; font-variant-numeric: tabular-nums; }
+.rank-0 { color: #fcc419; font-weight: 700; }
+.rank-1 { color: #ced4da; font-weight: 700; }
+.rank-2 { color: #e8590c; font-weight: 700; }
