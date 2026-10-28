@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NumberInput, Slider, Text, TextInput } from '@mantine/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCheck, faCode, faCopy, faFire, faGauge, faInfinity, faKeyboard, faLanguage, faListOl, faPlay, faRepeat,
+  faCalendar, faCheck, faClone, faCode, faCopy, faFire, faGauge, faInfinity, faKeyboard, faLanguage, faListOl, faPlay, faRepeat,
   faSliders, faStar, faStopwatch, faTrophy, faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import SkillCheck from './SkillCheck';
@@ -52,6 +52,15 @@ function luaSnippet(s: Settings) {
   const arr = s.mode === 'fixed' && s.count <= 8 ? `{ ${Array(s.count).fill(diff).join(', ')} }` : diff;
   return `lib.skillCheck(${arr}${s.keys.length ? `, { ${s.keys.map((k) => `'${k}'`).join(', ')} }` : ''})`;
 }
+
+const entrySettings = (e: Entry, fallbackCount: number): Settings => ({
+  preset: presetOf(e.areaSize, e.speedMultiplier),
+  areaSize: e.areaSize,
+  speedMultiplier: e.speedMultiplier,
+  keys: e.keys,
+  mode: e.mode,
+  count: e.count ?? fallbackCount,
+});
 
 // Best attempt per setup, keyed by configKey
 const loadBests = () =>
@@ -221,7 +230,7 @@ export default function App() {
         )}
       </section>
 
-      <Scoreboard t={t} />
+      <Scoreboard t={t} busy={busy} count={s.count} onUse={(e) => { setS(entrySettings(e, s.count)); setView('main'); }} />
 
       <Dialog opened={dialog === 'custom'} heading={t.custom} onCancel={() => setDialog(null)} onConfirm={confirmDialog}
         cancelLabel={t.cancel} confirmLabel={t.confirm}>
@@ -277,8 +286,15 @@ export default function App() {
   );
 }
 
-function Scoreboard({ t }: { t: Dict }) {
+function Scoreboard({ t, busy, count, onUse }: { t: Dict; busy: boolean; count: number; onUse: (e: Entry) => void }) {
   const [entries, setEntries] = useState<Entry[] | 'error' | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [done, setDone] = useState<'use' | 'lua' | null>(null);
+
+  const flash = (what: 'use' | 'lua') => {
+    setDone(what);
+    setTimeout(() => setDone(null), 1500);
+  };
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}scoreboard.json`, { cache: 'no-store' })
@@ -286,6 +302,25 @@ function Scoreboard({ t }: { t: Dict }) {
       .then((d) => setEntries(sortEntries(parseEntries(d)).slice(0, 100)))
       .catch(() => setEntries('error'));
   }, []);
+
+  const e = Array.isArray(entries) && selected !== null ? entries[selected] : null;
+  if (e) {
+    const lua = luaSnippet(entrySettings(e, count));
+    return (
+      <Menu title={`${selected! + 1}. ${e.name}`} onBack={() => setSelected(null)}>
+        <Option readOnly icon={faTrophy} iconColor={RANK_COLORS[selected!]} title={fmtScore(e)} description={fmtMs(e.avgMs)} />
+        <Option readOnly icon={faGauge} title={t.difficulty} description={difficultyLabel(e.areaSize, e.speedMultiplier, t)} />
+        <Option readOnly icon={faKeyboard} title={t.keys} description={keysLabel(e.keys)} />
+        <Option readOnly icon={faRepeat} title={t.mode} description={e.mode === 'endless' ? t.endless : `${t.fixed} · ${e.count}`} />
+        <Option readOnly icon={faCalendar} title={new Date(e.date).toLocaleDateString()} />
+        <Option icon={done === 'use' ? faCheck : faClone} title={done === 'use' ? t.applied : t.useSettings}
+          disabled={busy} onClick={() => { onUse(e); flash('use'); }} />
+        <Option icon={done === 'lua' ? faCheck : faCode} title={done === 'lua' ? t.copied : t.copyLua}
+          description={<code className="lua">{lua}</code>}
+          onClick={() => navigator.clipboard?.writeText(lua).then(() => flash('lua'))} />
+      </Menu>
+    );
+  }
 
   return (
     <Menu title={t.scoreboard}>
@@ -297,7 +332,8 @@ function Scoreboard({ t }: { t: Dict }) {
         entries?.map((e, i) => (
           <Option
             key={`${e.name}${e.date}${i}`}
-            readOnly
+            arrow
+            onClick={() => setSelected(i)}
             icon={faTrophy}
             iconColor={RANK_COLORS[i] ?? 'var(--mantine-color-dark-3)'}
             title={`${i + 1}. ${e.name}`}

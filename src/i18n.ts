@@ -27,6 +27,8 @@ const en = {
   noBest: 'No attempts yet',
   again: 'Try again',
   newBest: 'New best',
+  useSettings: 'Use settings',
+  applied: 'Settings applied',
 };
 
 export type Dict = typeof en;
@@ -61,6 +63,8 @@ const da: Dict = {
   noBest: 'Ingen forsøg endnu',
   again: 'Prøv igen',
   newBest: 'Ny rekord',
+  useSettings: 'Brug indstillinger',
+  applied: 'Indstillinger brugt',
 };
 
 export const dicts: Record<Lang, Dict> = { en, da };
